@@ -8,7 +8,7 @@ import { FiArrowRight, FiEye, FiEyeOff } from "react-icons/fi";
 import { FaEnvelope, FaHeart, FaLock } from "react-icons/fa";
 import { getToken, saveSession, type SessionUser } from "@/lib/session";
 
-const LEFT_IMAGE = "/register-left.png";
+const LEFT_IMAGE = "/image.png";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface LoginResponse {

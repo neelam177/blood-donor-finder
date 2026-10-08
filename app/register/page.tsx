@@ -8,7 +8,7 @@ import { FiArrowRight, FiEye, FiEyeOff } from "react-icons/fi";
 import { FaEnvelope, FaHeart, FaLock, FaPhoneAlt, FaUser } from "react-icons/fa";
 import { getToken, saveSession, type SessionUser } from "@/lib/session";
 
-const LEFT_IMAGE = "/register-image.png";
+const LEFT_IMAGE = "/image.png";
 
 interface FormState {
   name: string;
