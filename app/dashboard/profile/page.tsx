@@ -118,6 +118,8 @@ export default function DonorProfilePage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [loadingPage, setLoadingPage] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [message, setMessage] = useState("");
   const [serverError, setServerError] = useState("");
 
@@ -222,6 +224,55 @@ export default function DonorProfilePage() {
       setServerError("Cannot reach the server. Check your connection and try again.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    setDeleting(true);
+    setServerError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/donors/me", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.status === 401) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      const data: ApiResponse = await res.json();
+      if (!res.ok || !data.success) {
+        setServerError(data.message || "Could not delete profile");
+        return;
+      }
+
+      setMessage("Donor profile deleted successfully");
+      setHasProfile(false);
+      setForm(emptyForm);
+      setInitialForm(emptyForm);
+      setShowDeleteConfirm(false);
+
+      // Redirect to dashboard after deletion
+      setTimeout(() => {
+        router.push("/dashboard");
+        router.refresh();
+      }, 1500);
+    } catch {
+      setServerError("Cannot reach the server. Check your connection and try again.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -438,11 +489,23 @@ export default function DonorProfilePage() {
 
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || deleting}
                   className="w-full rounded-full bg-[#D90F2B] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-200 transition hover:bg-[#B80C24] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {saving ? "Saving..." : hasProfile ? "Save changes" : "Create profile"}
                 </button>
+
+                {/* Delete Profile Button - Only show if profile exists */}
+                {hasProfile && !loadingPage && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={saving || deleting}
+                    className="mt-3 w-full rounded-full border-2 border-red-600 px-6 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Delete Donor Profile
+                  </button>
+                )}
               </form>
             )}
           </section>
@@ -505,6 +568,37 @@ export default function DonorProfilePage() {
           </aside>
         </div>
       </div>
+
+      {/* ===== DELETE CONFIRMATION MODAL ===== */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-900">Delete Donor Profile?</h3>
+            <p className="mt-3 text-sm text-slate-600">
+              Are you sure you want to delete your donor profile? This action cannot be undone.
+              You will no longer appear in donor searches and all your donor information will be removed.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="flex-1 rounded-full border-2 border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 rounded-full bg-red-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Delete Profile"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

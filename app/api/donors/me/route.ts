@@ -113,3 +113,29 @@ export async function PUT(request: Request) {
     return serverError();
   }
 }
+
+// DELETE: profile delete karo
+export async function DELETE(request: Request) {
+  try {
+    const authUser = getAuthUser(request);
+    if (!authUser) return unauthorized();
+
+    const existing = await getDonorProfile(authUser.id);
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, message: "No donor profile found to delete." },
+        { status: 404 }
+      );
+    }
+
+    await db.query("DELETE FROM donor_profiles WHERE user_id = ?", [authUser.id]);
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Donor profile deleted successfully" 
+    });
+  } catch (error) {
+    console.error("Delete donor profile error:", error);
+    return serverError();
+  }
+}

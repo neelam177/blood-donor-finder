@@ -9,14 +9,16 @@ import {
   FaCheckCircle,
   FaChevronLeft,
   FaChevronRight,
+  FaClock,
   FaLock,
   FaMapMarkerAlt,
   FaPhoneAlt,
   FaSearch,
   FaTimes,
+  FaTrash,
   FaUser,
 } from "react-icons/fa";
-import { getToken } from "@/lib/session";
+import { clearSession, getToken, getUser } from "@/lib/session";
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const PER_PAGE = 9;
@@ -68,6 +70,40 @@ function pageNumbers(current: number, total: number): number[] {
   return list;
 }
 
+// Check if donor is eligible to donate (90 days after last donation)
+function checkEligibility(lastDonationDate: string | null): {
+  eligible: boolean;
+  nextDate: string | null;
+  daysLeft: number;
+} {
+  if (!lastDonationDate) {
+    return { eligible: true, nextDate: null, daysLeft: 0 };
+  }
+
+  const lastDate = new Date(`${lastDonationDate}T00:00:00`);
+  const nextEligibleDate = new Date(lastDate);
+  nextEligibleDate.setDate(nextEligibleDate.getDate() + 90);
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const daysLeft = Math.ceil((nextEligibleDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysLeft <= 0) {
+    return { eligible: true, nextDate: null, daysLeft: 0 };
+  }
+  
+  return {
+    eligible: false,
+    nextDate: nextEligibleDate.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    daysLeft,
+  };
+}
+
 function DonorsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -80,11 +116,22 @@ function DonorsContent() {
   const [data, setData] = useState<DonorsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [deleteUserId, setDeleteUserId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // URL badle (jaise home page se aaye) to input bhi sync ho
   useEffect(() => {
     setCityInput(urlCity);
   }, [urlCity]);
+
+  // Get current user ID on mount
+  useEffect(() => {
+    const user = getUser();
+    if (user) {
+      setCurrentUserId(user.id);
+    }
+  }, []);
 
   // URL ke filters se donors laao
   useEffect(() => {
@@ -129,6 +176,45 @@ function DonorsContent() {
   function handleSearch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     go(urlGroup, cityInput, 1);
+  }
+
+  async function handleDeleteProfile(userId: number) {
+    const token = getToken();
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/donors/me", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.status === 401) {
+        clearSession();
+        router.push("/login");
+        return;
+      }
+
+      const apiData: { success: boolean; message?: string } = await res.json();
+      if (!res.ok || !apiData.success) {
+        setError(apiData.message || "Could not delete profile");
+        return;
+      }
+
+      // Close modal and reload donors list
+      setDeleteUserId(null);
+      // Refresh the page to show updated list
+      go(urlGroup, urlCity, urlPage);
+    } catch {
+      setError("Cannot reach the server. Check your connection and try again.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const hasFilters = Boolean(urlGroup || urlCity);
@@ -287,7 +373,11 @@ function DonorsContent() {
           </div>
         ) : donors.length > 0 ? (
           <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {donors.map((d) => (
+            {donors.map((d) => {
+              const eligibility = checkEligibility(d.last_donation_date);
+              const isEligible = eligibility.eligible;
+              
+              return (
               <article
                 key={d.user_id}
                 className="group overflow-hidden rounded-3xl bg-white shadow-md shadow-rose-100 ring-1 ring-rose-100 transition hover:-translate-y-1 hover:shadow-xl"
@@ -296,11 +386,17 @@ function DonorsContent() {
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#E5233C] to-[#B80C24] text-xl font-extrabold text-white shadow-lg shadow-red-200">
                     {d.blood_group}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <h3 className="truncate text-lg font-bold text-slate-900">{d.name}</h3>
-                    <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700">
-                      <FaCheckCircle size={11} /> Available
-                    </span>
+                    {isEligible ? (
+                      <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700">
+                        <FaCheckCircle size={11} /> Available
+                      </span>
+                    ) : (
+                      <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                        <FaClock size={11} /> Not eligible yet
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -319,10 +415,24 @@ function DonorsContent() {
                       ? `Last donated ${formatDate(d.last_donation_date)}`
                       : "Ready to donate"}
                   </p>
+                  
+                  {/* Eligibility info - show if not eligible */}
+                  {!isEligible && eligibility.nextDate && (
+                    <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <p className="font-semibold">Can donate from {eligibility.nextDate}</p>
+                      <p className="mt-0.5 text-amber-700">
+                        ({eligibility.daysLeft} {eligibility.daysLeft === 1 ? 'day' : 'days'} remaining)
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="px-5 pb-5">
-                  {d.phone ? (
+                  {!isEligible ? (
+                    <div className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-amber-300 bg-amber-50 py-2.5 text-sm font-bold text-amber-700 cursor-not-allowed">
+                      <FaClock size={13} /> Not eligible to donate yet
+                    </div>
+                  ) : d.phone ? (
                     <a
                       href={`tel:${d.phone}`}
                       className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#E5233C] to-[#B80C24] py-2.5 text-sm font-bold text-white shadow-md shadow-red-200 transition hover:brightness-110"
@@ -337,9 +447,21 @@ function DonorsContent() {
                       <FaLock size={12} /> Login to view contact
                     </Link>
                   )}
+                  
+                  {/* Delete button - only show if this is the logged-in user's own card */}
+                  {currentUserId === d.user_id && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteUserId(d.user_id)}
+                      className="mt-2 flex w-full items-center justify-center gap-2 rounded-full border-2 border-red-600 bg-white py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50"
+                    >
+                      <FaTrash size={12} /> Delete Profile
+                    </button>
+                  )}
                 </div>
               </article>
-            ))}
+            );
+            })}
           </div>
         ) : (
           !error && (
@@ -421,6 +543,37 @@ function DonorsContent() {
           </nav>
         )}
       </div>
+
+      {/* ===== DELETE CONFIRMATION MODAL ===== */}
+      {deleteUserId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-900">Delete Donor Profile?</h3>
+            <p className="mt-3 text-sm text-slate-600">
+              Are you sure you want to delete your donor profile? This action cannot be undone.
+              You will no longer appear in donor searches and all your donor information will be removed.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteUserId(null)}
+                disabled={deleting}
+                className="flex-1 rounded-full border-2 border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteProfile(deleteUserId)}
+                disabled={deleting}
+                className="flex-1 rounded-full bg-red-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Delete Profile"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

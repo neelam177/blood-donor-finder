@@ -9,6 +9,7 @@ import {
   FaCheckCircle,
   FaChevronLeft,
   FaChevronRight,
+  FaClock,
   FaHandHoldingHeart,
   FaHospital,
   FaLock,
@@ -18,6 +19,7 @@ import {
   FaSearch,
   FaTimes,
   FaTint,
+  FaUserPlus,
   FaUsers,
 } from "react-icons/fa";
 import { clearSession, getToken } from "@/lib/session";
@@ -100,6 +102,40 @@ function pageNumbers(current: number, total: number): number[] {
   return list;
 }
 
+// Check if donor is eligible to donate (90 days after last donation)
+function checkDonorEligibility(lastDonationDate: string | null): {
+  eligible: boolean;
+  nextDate: string | null;
+  daysLeft: number;
+} {
+  if (!lastDonationDate) {
+    return { eligible: true, nextDate: null, daysLeft: 0 };
+  }
+
+  const lastDate = new Date(`${lastDonationDate}T00:00:00`);
+  const nextEligibleDate = new Date(lastDate);
+  nextEligibleDate.setDate(nextEligibleDate.getDate() + 90);
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const daysLeft = Math.ceil((nextEligibleDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysLeft <= 0) {
+    return { eligible: true, nextDate: null, daysLeft: 0 };
+  }
+  
+  return {
+    eligible: false,
+    nextDate: nextEligibleDate.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    daysLeft,
+  };
+}
+
 function RequestsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -113,6 +149,12 @@ function RequestsContent() {
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hasDonorProfile, setHasDonorProfile] = useState<boolean | null>(null);
+  const [donorEligibility, setDonorEligibility] = useState<{
+    eligible: boolean;
+    nextDate: string | null;
+    daysLeft: number;
+  } | null>(null);
 
   // Respond popup
   const [target, setTarget] = useState<BloodRequest | null>(null);
@@ -126,6 +168,45 @@ function RequestsContent() {
   useEffect(() => {
     setCityInput(urlCity);
   }, [urlCity]);
+
+  // Check if user has donor profile
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setHasDonorProfile(null);
+      setDonorEligibility(null);
+      return;
+    }
+    
+    async function checkProfile() {
+      try {
+        const res = await fetch("/api/donors/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data: { success: boolean; profile?: { last_donation_date: string | null } | null } = await res.json();
+          const hasProfile = data.success && data.profile !== null;
+          setHasDonorProfile(hasProfile);
+          
+          // Check 90-day eligibility
+          if (hasProfile && data.profile) {
+            const eligibility = checkDonorEligibility(data.profile.last_donation_date);
+            setDonorEligibility(eligibility);
+          } else {
+            setDonorEligibility(null);
+          }
+        } else {
+          setHasDonorProfile(false);
+          setDonorEligibility(null);
+        }
+      } catch {
+        setHasDonorProfile(false);
+        setDonorEligibility(null);
+      }
+    }
+    
+    checkProfile();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -473,6 +554,22 @@ function RequestsContent() {
                           >
                             <FaLock size={12} /> Login to respond
                           </Link>
+                        ) : hasDonorProfile === false ? (
+                          <Link
+                            href="/dashboard/profile"
+                            className="flex items-center gap-2 rounded-full border-2 border-amber-500 bg-amber-50 px-5 py-2 text-sm font-bold text-amber-700 transition hover:bg-amber-100"
+                          >
+                            <FaUserPlus size={12} /> Create donor profile
+                          </Link>
+                        ) : donorEligibility && !donorEligibility.eligible ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="flex items-center gap-2 rounded-full border-2 border-amber-400 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700">
+                              <FaClock size={11} /> Not eligible yet
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              Can donate from {donorEligibility.nextDate}
+                            </span>
+                          </div>
                         ) : (
                           <>
                             {r.contact_phone && (
