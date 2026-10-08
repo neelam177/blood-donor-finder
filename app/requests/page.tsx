@@ -270,6 +270,10 @@ function RequestsContent() {
   function closeModal() {
     setTarget(null);
     setSubmitting(false);
+    // If donation was successful, refresh page to update button states
+    if (modalDone) {
+      router.refresh();
+    }
   }
 
   async function confirmRespond() {
@@ -303,6 +307,22 @@ function RequestsContent() {
       setResponded((prev) => [...prev, target.id]);
       setExtraCounts((prev) => ({ ...prev, [target.id]: (prev[target.id] ?? 0) + 1 }));
       setModalDone({ message: json.message, phone: json.contact_phone ?? null });
+      
+      // Refresh donor eligibility after successful donation response
+      try {
+        const profileRes = await fetch("/api/donors/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (profileRes.ok) {
+          const profileData: { success: boolean; profile?: { last_donation_date: string | null } | null } = await profileRes.json();
+          if (profileData.success && profileData.profile) {
+            const eligibility = checkDonorEligibility(profileData.profile.last_donation_date);
+            setDonorEligibility(eligibility);
+          }
+        }
+      } catch {
+        // Silent fail - eligibility will be checked on next page load
+      }
     } catch {
       setModalError("Cannot reach the server. Check your connection and try again.");
     } finally {

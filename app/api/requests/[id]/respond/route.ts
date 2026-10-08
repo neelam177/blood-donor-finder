@@ -129,6 +129,13 @@ export async function POST(
       [id, authUser.id, message]
     );
 
+    // Update donor's last_donation_date to today (they just committed to donate)
+    const todayDate = new Date().toISOString().slice(0, 10);
+    await db.query(
+      "UPDATE donor_profiles SET last_donation_date = ? WHERE user_id = ?",
+      [todayDate, authUser.id]
+    );
+
     return NextResponse.json(
       {
         success: true,
